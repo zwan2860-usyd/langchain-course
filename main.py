@@ -1,9 +1,40 @@
-from dotenv import load_dotenv
-from langchain_core.prompts import PromptTemplate
-from langchain_openai import ChatOpenAI
-from langchain_ollama import ChatOllama
+import os
+from pathlib import Path
 
-load_dotenv()
+import google.auth
+from dotenv import load_dotenv
+from google.auth.exceptions import DefaultCredentialsError
+from langchain_core.prompts import PromptTemplate
+from langchain_google_genai import ChatGoogleGenerativeAI
+
+
+def build_llm():
+    load_dotenv(Path(__file__).with_name(".env"))
+    project = os.getenv("GOOGLE_CLOUD_PROJECT", "").strip()
+    if not project:
+        raise RuntimeError(
+            "Set GOOGLE_CLOUD_PROJECT in your local .env or environment."
+        )
+
+    try:
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+    except DefaultCredentialsError:
+        raise RuntimeError(
+            "Google ADC is unavailable. Run gcloud auth application-default login."
+        ) from None
+
+    return ChatGoogleGenerativeAI(
+        model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
+        vertexai=True,
+        project=project,
+        location=os.getenv("GOOGLE_CLOUD_LOCATION", "global"),
+        credentials=credentials,
+        api_key=None,
+        temperature=1.0,
+        max_retries=2,
+    )
 
 
 def main():
@@ -30,12 +61,12 @@ Musk's political activities, views, and statements have made him a polarizing fi
         input_variables=["information"], template=summary_template
     )
 
-    # llm = ChatOllama(temperature=0, model="gemma3:270m")
-    llm = ChatOpenAI(temperature=0, model="gpt-5")
+    llm = build_llm()
     chain = summary_prompt_template | llm
 
     response = chain.invoke(input={"information": information})
-    print(response.content)
+    print(response.text)
+
 
 if __name__ == "__main__":
     main()
