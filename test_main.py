@@ -195,6 +195,62 @@ class GeminiConfigurationTests(unittest.TestCase):
         adc.assert_not_called()
         kimi.assert_not_called()
 
+    def test_ollama_uses_lan_model_without_cloud_credentials(self):
+        os.environ.clear()
+        os.environ.update(
+            LLM_PROVIDER=" OLLAMA ",
+            OLLAMA_BASE_URL="http://192.0.2.10:11434/",
+            OLLAMA_MODEL="qwen3.8:27b-mlx",
+        )
+        with (
+            patch.object(course, "ChatOllama") as model,
+            patch.object(course.google.auth, "default") as adc,
+            patch.object(course, "ChatOpenAI") as kimi,
+            patch.object(course, "ChatGoogleGenerativeAI") as gemini,
+        ):
+            self.assertIs(course.build_llm(), model.return_value)
+        model.assert_called_once_with(
+            model="qwen3.8:27b-mlx",
+            base_url="http://192.0.2.10:11434",
+            temperature=0,
+            reasoning=False,
+            client_kwargs={"timeout": 120.0, "trust_env": False},
+        )
+        adc.assert_not_called()
+        kimi.assert_not_called()
+        gemini.assert_not_called()
+
+    def test_ollama_defaults_to_localhost(self):
+        os.environ.update(LLM_PROVIDER="ollama", OLLAMA_MODEL="test-model")
+        with patch.object(course, "ChatOllama") as model:
+            course.build_llm()
+        self.assertEqual(model.call_args.kwargs["base_url"], "http://localhost:11434")
+
+    def test_ollama_requires_model_without_cloud_fallback(self):
+        os.environ["LLM_PROVIDER"] = "ollama"
+        with (
+            patch.object(course, "ChatOllama") as model,
+            patch.object(course.google.auth, "default") as adc,
+            patch.object(course, "ChatOpenAI") as kimi,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Set OLLAMA_MODEL"):
+                course.build_llm()
+        model.assert_not_called()
+        adc.assert_not_called()
+        kimi.assert_not_called()
+
+    def test_ollama_connection_failure_does_not_use_cloud_models(self):
+        os.environ.update(LLM_PROVIDER="ollama", OLLAMA_MODEL="test-model")
+        with (
+            patch.object(course, "ChatOllama", side_effect=ConnectionError),
+            patch.object(course, "ChatOpenAI") as kimi,
+            patch.object(course, "ChatGoogleGenerativeAI") as gemini,
+        ):
+            with self.assertRaises(ConnectionError):
+                course.build_llm()
+        kimi.assert_not_called()
+        gemini.assert_not_called()
+
     def test_course_chain_prints_text_from_content_blocks(self):
         prompts = []
 

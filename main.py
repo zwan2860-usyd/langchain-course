@@ -6,12 +6,28 @@ from dotenv import load_dotenv
 from google.auth.exceptions import DefaultCredentialsError
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 
 
 def build_llm():
     load_dotenv(Path(__file__).with_name(".env"))
     provider = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
+    if provider == "ollama":
+        model = os.getenv("OLLAMA_MODEL", "").strip()
+        if not model:
+            raise RuntimeError(
+                "Set OLLAMA_MODEL to a model installed on your Ollama server."
+            )
+        return ChatOllama(
+            model=model,
+            base_url=os.getenv(
+                "OLLAMA_BASE_URL", "http://localhost:11434"
+            ).strip().rstrip("/"),
+            temperature=0,
+            reasoning=False,
+            client_kwargs={"timeout": 120.0, "trust_env": False},
+        )
     if provider == "kimi":
         api_key = os.getenv("MOONSHOT_API_KEY", "").strip()
         if not api_key or api_key == "your-api-key":
@@ -37,7 +53,7 @@ def build_llm():
             max_retries=2,
         )
     if provider != "gemini":
-        raise RuntimeError("LLM_PROVIDER must be gemini or kimi.")
+        raise RuntimeError("LLM_PROVIDER must be gemini, kimi, or ollama.")
 
     project = os.getenv("GOOGLE_CLOUD_PROJECT", "").strip()
     if not project:

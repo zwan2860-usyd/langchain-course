@@ -1,7 +1,8 @@
-# LangChain Course: Gemini and Kimi
+# LangChain Course: Gemini, Kimi, and Ollama
 
 This branch keeps the course's prompt and LCEL chain, using Gemini through
-Vertex AI with ADC or Kimi through Moonshot's OpenAI-compatible API.
+Vertex AI with ADC, Kimi through Moonshot's OpenAI-compatible API, or a local/LAN
+Ollama server.
 
 ## Setup
 
@@ -9,7 +10,7 @@ Install the project dependencies with `uv sync --locked`. If `uv` is not on your
 terminal's PATH, use `~/.local/bin/uv` instead.
 
 Gemini is selected by default (`LLM_PROVIDER=gemini`). The Google setup below
-applies only to Gemini; Kimi does not require a Google project or ADC.
+applies only to Gemini; Kimi and Ollama do not require a Google project or ADC.
 
 Reuse your existing Google Application Default Credentials (ADC). Only if ADC
 is missing, run this command yourself and complete the browser login:
@@ -82,6 +83,40 @@ LLM_PROVIDER=kimi uv run main.py
 
 Set `LLM_PROVIDER=gemini` to switch back. Never put a real key in `.env.example`.
 
+## Try Ollama on Your LAN
+
+Use the server's base address, not `/api/chat` or `/v1`. Replace the illustrative
+address below with your server's actual IP, and use the exact model tag returned
+by its `/api/tags` endpoint:
+
+```dotenv
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://192.0.2.10:11434
+OLLAMA_MODEL=qwen3.8:27b-mlx
+```
+
+Put the real address only in your ignored local `.env`. If the server is on this
+computer, use `http://localhost:11434`, which is also the default address.
+`OLLAMA_MODEL` is required. The existing `langchain-ollama` dependency handles
+the connection; no Google, Kimi, or OpenAI credentials are sent to Ollama.
+
+```bash
+curl --connect-timeout 5 http://YOUR_SERVER_IP:11434/api/tags
+LLM_PROVIDER=ollama uv run main.py
+```
+
+For this text-summary example, thinking output is disabled (`reasoning=False`),
+temperature is 0, and the HTTP timeout is 120 seconds. The Ollama client bypasses
+environment proxy settings to keep LAN requests direct. There is no cloud
+fallback on connection/model errors; existing Gemini and Kimi settings remain
+available by changing `LLM_PROVIDER`.
+
+The server must accept LAN connections; a working `/` page alone does not prove
+the requested model is installed or inference works. Ollama's HTTP endpoint is
+not encrypted and usually has no authentication. Keep it on a trusted network,
+restrict access with firewall rules, and do not expose port 11434 to the public
+Internet. Use an SSH tunnel or authenticated HTTPS proxy for untrusted networks.
+
 ## Run and Test
 
 ```bash
@@ -90,7 +125,8 @@ uv run python -m unittest test_main -v
 ```
 
 Running `main.py` sends the example prompt to the selected provider and consumes
-API usage or subscription quota. Unit tests are offline and do not use your credentials.
+API usage or subscription quota for cloud providers. Ollama inference runs on
+your selected server. Unit tests are offline and do not use your credentials.
 The example prints plain response text, not content blocks or authentication
 details.
 
