@@ -46,7 +46,7 @@ class GeminiConfigurationTests(unittest.TestCase):
             location="global",
             credentials=credentials,
             api_key=None,
-            temperature=1.0,
+            temperature=0,
             max_retries=2,
         )
 
@@ -97,6 +97,103 @@ class GeminiConfigurationTests(unittest.TestCase):
             self.assertIsNone(model.client._api_client.api_key)
         finally:
             model.client.close()
+
+    def test_kimi_does_not_require_google_configuration_or_adc(self):
+        os.environ.clear()
+        os.environ.update(LLM_PROVIDER="kimi", MOONSHOT_API_KEY="test-only-key")
+        with (
+            patch.object(course.google.auth, "default") as adc,
+            patch.object(course, "ChatOpenAI") as model,
+            patch.object(course, "ChatGoogleGenerativeAI") as gemini,
+        ):
+            self.assertIs(course.build_llm(), model.return_value)
+        adc.assert_not_called()
+        gemini.assert_not_called()
+        model.assert_called_once_with(
+            model="kimi-k3",
+            base_url="https://api.moonshot.cn/v1",
+            api_key="test-only-key",
+            use_responses_api=False,
+            timeout=120,
+            max_retries=2,
+        )
+
+    def test_kimi_model_override_and_provider_normalization(self):
+        os.environ.update(
+            LLM_PROVIDER=" KIMI ",
+            MOONSHOT_API_KEY="test-only-key",
+            KIMI_MODEL="kimi-k2.6",
+        )
+        with patch.object(course, "ChatOpenAI") as model:
+            course.build_llm()
+        self.assertEqual(model.call_args.kwargs["model"], "kimi-k2.6")
+
+    def test_kimi_missing_or_placeholder_key_has_safe_error(self):
+        os.environ["LLM_PROVIDER"] = "kimi"
+        with (
+            patch.object(course, "ChatOpenAI") as model,
+            patch.object(course.google.auth, "default") as adc,
+        ):
+            for key in ["", " ", "your-api-key"]:
+                with self.subTest(key=key):
+                    os.environ["MOONSHOT_API_KEY"] = key
+                    with self.assertRaisesRegex(RuntimeError, "Set MOONSHOT_API_KEY"):
+                        course.build_llm()
+        model.assert_not_called()
+        adc.assert_not_called()
+
+    def test_kimi_code_endpoint_and_model_override(self):
+        os.environ.update(
+            LLM_PROVIDER="kimi",
+            MOONSHOT_API_KEY="test-only-key",
+            KIMI_BASE_URL="https://api.kimi.com/coding/v1/",
+            KIMI_MODEL="k3",
+        )
+        with (
+            patch.object(course, "ChatOpenAI") as model,
+            patch.object(course.google.auth, "default") as adc,
+        ):
+            course.build_llm()
+        self.assertEqual(
+            model.call_args.kwargs["base_url"], "https://api.kimi.com/coding/v1"
+        )
+        self.assertEqual(model.call_args.kwargs["model"], "k3")
+        self.assertNotIn("default_headers", model.call_args.kwargs)
+        adc.assert_not_called()
+
+    def test_kimi_international_endpoints(self):
+        os.environ.update(LLM_PROVIDER="kimi", MOONSHOT_API_KEY="test-only-key")
+        for base_url in [
+            "https://api.moonshot.ai/v1",
+            "https://api.kimi.ai/coding/v1",
+        ]:
+            with self.subTest(base_url=base_url):
+                os.environ["KIMI_BASE_URL"] = base_url
+                with patch.object(course, "ChatOpenAI") as model:
+                    course.build_llm()
+                self.assertEqual(model.call_args.kwargs["base_url"], base_url)
+
+    def test_kimi_rejects_untrusted_endpoint_before_client_creation(self):
+        os.environ.update(
+            LLM_PROVIDER="kimi",
+            MOONSHOT_API_KEY="test-only-key",
+            KIMI_BASE_URL="https://untrusted.example/v1",
+        )
+        with patch.object(course, "ChatOpenAI") as model:
+            with self.assertRaisesRegex(RuntimeError, "official Kimi API endpoint"):
+                course.build_llm()
+        model.assert_not_called()
+
+    def test_unknown_provider_does_not_fall_back_to_gemini(self):
+        os.environ["LLM_PROVIDER"] = "unknown"
+        with (
+            patch.object(course.google.auth, "default") as adc,
+            patch.object(course, "ChatOpenAI") as kimi,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "LLM_PROVIDER must be"):
+                course.build_llm()
+        adc.assert_not_called()
+        kimi.assert_not_called()
 
     def test_course_chain_prints_text_from_content_blocks(self):
         prompts = []

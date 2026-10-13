@@ -6,10 +6,39 @@ from dotenv import load_dotenv
 from google.auth.exceptions import DefaultCredentialsError
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 
 
 def build_llm():
     load_dotenv(Path(__file__).with_name(".env"))
+    provider = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
+    if provider == "kimi":
+        api_key = os.getenv("MOONSHOT_API_KEY", "").strip()
+        if not api_key or api_key == "your-api-key":
+            raise RuntimeError(
+                "Set MOONSHOT_API_KEY in your local .env or environment."
+            )
+        base_url = os.getenv(
+            "KIMI_BASE_URL", "https://api.moonshot.cn/v1"
+        ).strip().rstrip("/")
+        if base_url not in {
+            "https://api.moonshot.cn/v1",
+            "https://api.moonshot.ai/v1",
+            "https://api.kimi.com/coding/v1",
+            "https://api.kimi.ai/coding/v1",
+        }:
+            raise RuntimeError("KIMI_BASE_URL must be an official Kimi API endpoint.")
+        return ChatOpenAI(
+            model=os.getenv("KIMI_MODEL", "kimi-k3"),
+            base_url=base_url,
+            api_key=api_key,
+            use_responses_api=False,
+            timeout=120,
+            max_retries=2,
+        )
+    if provider != "gemini":
+        raise RuntimeError("LLM_PROVIDER must be gemini or kimi.")
+
     project = os.getenv("GOOGLE_CLOUD_PROJECT", "").strip()
     if not project:
         raise RuntimeError(
@@ -32,7 +61,7 @@ def build_llm():
         location=os.getenv("GOOGLE_CLOUD_LOCATION", "global"),
         credentials=credentials,
         api_key=None,
-        temperature=1.0,
+        temperature=0,
         max_retries=2,
     )
 
